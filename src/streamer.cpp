@@ -40,12 +40,13 @@ public:
     pipeline_(nullptr), sink_(nullptr), source_(nullptr),
     loop_(nullptr), bus_(nullptr)
   {
+    const std::string ns = std::string(get_namespace());
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
-      "/performancetest1/camera/color/video",
+      ns+"/camera/color/video",
       rclcpp::SensorDataQoS());
 
     publisher_cmd_ = this->create_publisher<std_msgs::msg::String>(
-      "/performancetest1/videostreamcmd",
+      ns+"/videostreamcmd",
       rclcpp::SensorDataQoS());
 
     on_set_parameter_cb_handle_ =

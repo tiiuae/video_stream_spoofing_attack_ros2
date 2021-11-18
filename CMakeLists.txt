@@ -17,14 +17,30 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0)
+#find_package(nlohmann_json REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
+
+include_directories(SYSTEM ${GST_INCLUDE_DIRS})
+include_directories(include)
+link_directories(${GST_LIBRARY_DIRS})
+
 add_executable(streamer src/streamer.cpp)
+ament_target_dependencies(streamer PUBLIC rclcpp std_msgs sensor_msgs)
+target_link_libraries(streamer PUBLIC ${GST_LIBRARIES} gstapp-1.0)
+
 target_include_directories(streamer PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+
 
 install(TARGETS streamer
   DESTINATION lib/${PROJECT_NAME})
@@ -39,5 +55,10 @@ if(BUILD_TESTING)
   #set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
+
+
+install(TARGETS streamer
+        DESTINATION lib/${PROJECT_NAME})
+
 
 ament_package()

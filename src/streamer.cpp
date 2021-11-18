@@ -40,7 +40,7 @@ public:
     pipeline_(nullptr), sink_(nullptr), source_(nullptr),
     loop_(nullptr), bus_(nullptr)
   {
-    const std::string ns = std::string(get_namespace());
+    const std::string ns = std::string(this->get_namespace());
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
       ns+"/camera/color/video",
       rclcpp::SensorDataQoS());

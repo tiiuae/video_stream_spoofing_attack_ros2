@@ -39,9 +39,6 @@ public:
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
       "/performancetest1/camera/color/video",
       rclcpp::SensorDataQoS());
-    publisher_image_ = this->create_publisher<sensor_msgs::msg::Image>(
-      "/image_stream",
-      rclcpp::SensorDataQoS());
     on_set_parameter_cb_handle_ =
       this->add_on_set_parameters_callback(
       std::bind(
@@ -72,17 +69,6 @@ private:
                 ! videoconvert ! x264enc ! video/x-h264, stream-format=byte-stream,profile=main \
                 ! queue ! appsink name=mysink \
                 ";
-
-/*
-    const std::string gst_launch =
-      "videotestsrc pattern=circular ! video/x-raw,format=I420,width=1280,height=720,framerate=25/1 \
-                ! textoverlay text=\"Camera not detected\" valignment=4 halignment=1 font-desc=Sans \
-                ! videoconvert ! x264enc ! video/x-h264, stream-format=byte-stream,pass=5,profile=main,trellis=false,\
-                tune=zerolatency,threads=0,speed-preset=superfast,subme=1,bitrate=4000   \
-                ! queue ! appsink name=mysink \
-                ";*/
-    //const std::string gst_launch = "videotestsrc pattern=ball ! video/x-raw,width=1920,height=1080,format=RGB ! \
-    //  videorate ! video/x-raw, framerate=30/1  ! appsink name=mysink";
 
     pipeline_ = gst_parse_launch(gst_launch.c_str(), &err);
 
@@ -186,31 +172,6 @@ private:
         memcpy(video_stream_chunk->data.data(), info.data, info.size);
 
 
-        //auto frame = (unsigned char*)info.data;
-
-        /*std::copy(
-          info.data,
-          info.data + info.size,
-          video_stream_chunk->data.begin()
-        );*/
-        //video_stream_chunk.data.swap(info.data);
-        /*
-        img->width            = width;
-        img->height           = height;
-
-        img->encoding         = "rgb8";
-        img->is_bigendian     = false;
-        img->data.resize(width * height * 3);
-
-        img->step             = width * 3;
-
-        // Copy the image so we can free the buffer allocated by gstreamer
-        std::copy(
-          info.data,
-          info.data + info.size,
-          img->data.begin()
-        );
-        img->header.frame_id = "camera";*/
         static int count = 0;
         RCLCPP_INFO(
           node->get_logger(),
@@ -245,7 +206,6 @@ private:
   //uint8_t data_;
 
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr publisher_;
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher_image_;
   std::string gst_pipeline_string_;
   OnSetParametersCallbackHandle::SharedPtr on_set_parameter_cb_handle_;
 

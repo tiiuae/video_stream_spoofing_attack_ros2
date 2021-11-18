@@ -37,8 +37,8 @@ class VideoSpoofingNode : public rclcpp::Node
 public:
   VideoSpoofingNode()
   : Node("video_stream_spoofing_attacker"),
-    pipeline_(nullptr), sink_(nullptr), source_(nullptr),
-    loop_(nullptr), bus_(nullptr)
+    pipeline_(nullptr), source_(nullptr), sink_(nullptr),
+    bus_(nullptr), loop_(nullptr)
   {
     const std::string ns = std::string(this->get_namespace());
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
@@ -186,14 +186,14 @@ private:
   static void on_eos(_GstAppSink * sink, void * user_data)
   {
     VideoSpoofingNode * node = (VideoSpoofingNode *)user_data;
-
+    (void)sink;
     RCLCPP_INFO(node->get_logger(), "on_eos called");
   }
 
   static GstFlowReturn on_preroll(_GstAppSink * sink, void * user_data)
   {
     VideoSpoofingNode * node = (VideoSpoofingNode *)user_data;
-
+    (void)sink;
     RCLCPP_INFO(node->get_logger(), "on_preroll called");
     return GST_FLOW_OK;
   }

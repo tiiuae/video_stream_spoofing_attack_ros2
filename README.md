@@ -3,4 +3,4 @@
 
 based on
 
-https://github.com/makepluscode/ros2-gst-test/blob/main/src/main.cpp
+https://github.com/makepluscode/ros2-gst-test/

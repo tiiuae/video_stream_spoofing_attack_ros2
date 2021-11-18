@@ -2,12 +2,15 @@
 #include <thread>
 #include <iostream>
 #include <chrono>
+#include <stdio.h>
 #include <stdlib.h>
 #include <algorithm>
 #include <string>
 #include <cctype>
 #include <arpa/inet.h>
 
+#include <sys/types.h>
+#include <signal.h>
 
 #include <gst/gst.h>
 #include <gst/gstbus.h>
@@ -23,11 +26,12 @@
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/image.hpp>
+#include "std_msgs/msg/string.hpp"
 
 using std::placeholders::_1;
 
 using namespace std::chrono_literals;
-
+#define LEN 10
 class VideoSpoofingNode : public rclcpp::Node
 {
 public:
@@ -39,21 +43,81 @@ public:
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
       "/performancetest1/camera/color/video",
       rclcpp::SensorDataQoS());
+
+    publisher_cmd_ = this->create_publisher<std_msgs::msg::String>(
+      "/performancetest1/videostreamcmd",
+      rclcpp::SensorDataQoS());
+
     on_set_parameter_cb_handle_ =
       this->add_on_set_parameters_callback(
       std::bind(
         &VideoSpoofingNode::on_set_parameter_cb, this,
         _1));
-
+    killCameraNode();
     gst_init(nullptr, nullptr);
     initializeGst();
 
+
+    std_msgs::msg::String msg;
+    RCLCPP_INFO(this->get_logger(), "Sending start stream command");
+    msg.data = "{ \"Command\": \"start\" }";
+    publisher_cmd_->publish(msg);
+    RCLCPP_INFO(this->get_logger(), "Sent start stream command, waiting 3 seconds");
+
   }
 
-  virtual ~VideoSpoofingNode() = default;
+  ~VideoSpoofingNode(){
+    //killCameraNode();
+    gst_element_set_state(pipeline_, GST_STATE_NULL);
+    gst_object_unref(pipeline_);
+    gst_object_unref(bus_);
+    g_main_loop_unref(loop_);
+    char line[LEN];
+    FILE *cmd = popen("pidof -s camera_node", "r");
+    long pid = 0;
+
+    fgets(line, LEN, cmd);
+    pid = strtoul(line, NULL, 10);
+    RCLCPP_INFO(this->get_logger(), "Killing camera node with pid %ld", pid);
+    //printf("%ld\n", pid);
+    int res =  kill(pid, 18);
+    res =  kill(pid, 2);
+    if (res == 0)
+    {
+      RCLCPP_INFO(this->get_logger(), "Killed camera node with pid %ld", pid);
+    }
+    else
+    {
+      RCLCPP_INFO(this->get_logger(), "Failed to kill camera node with pid %ld", pid);
+    }
+  }
+
   void killCameraNode()
   {
-    RCLCPP_INFO(this->get_logger(), "Killing camera node");
+    RCLCPP_INFO(this->get_logger(), "Sending stop stream command");
+    std_msgs::msg::String msg;
+    msg.data = "{ \"Command\": \"stop\" }";
+    publisher_cmd_->publish(msg);
+    
+    RCLCPP_INFO(this->get_logger(), "Sent stop stream command, waiting 3 seconds");
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    char line[LEN];
+    FILE *cmd = popen("pidof -s camera_node", "r");
+    long pid = 0;
+
+    fgets(line, LEN, cmd);
+    pid = strtoul(line, NULL, 10);
+    RCLCPP_INFO(this->get_logger(), "Stopping camera node with pid %ld", pid);
+    //printf("%ld\n", pid);
+    int res =  kill(pid, 19);
+    if (res == 0)
+    {
+      RCLCPP_INFO(this->get_logger(), "Stopped camera node with pid %ld", pid);
+    }
+    else
+    {
+      RCLCPP_INFO(this->get_logger(), "Failed to stop camera node with pid %ld", pid);
+    }
   }
 
 private:
@@ -206,6 +270,8 @@ private:
   //uint8_t data_;
 
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr publisher_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_cmd_;
+
   std::string gst_pipeline_string_;
   OnSetParametersCallbackHandle::SharedPtr on_set_parameter_cb_handle_;
 

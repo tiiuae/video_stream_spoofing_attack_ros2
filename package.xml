@@ -4,7 +4,7 @@
   <name>video_stream_spoofing_attack</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="mehmet@todo.todo">mehmet</maintainer>
+  <maintainer email="mehmet.killioglu@unikie.com">mehmet</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

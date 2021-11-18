@@ -42,11 +42,11 @@ public:
   {
     const std::string ns = std::string(this->get_namespace());
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
-      ns+"/camera/color/video",
+      ns + "/camera/color/video",
       rclcpp::SensorDataQoS());
 
     publisher_cmd_ = this->create_publisher<std_msgs::msg::String>(
-      ns+"/videostreamcmd",
+      ns + "/videostreamcmd",
       rclcpp::SensorDataQoS());
 
     on_set_parameter_cb_handle_ =
@@ -67,30 +67,55 @@ public:
 
   }
 
-  ~VideoSpoofingNode(){
+  ~VideoSpoofingNode()
+  {
     //killCameraNode();
     gst_element_set_state(pipeline_, GST_STATE_NULL);
     gst_object_unref(pipeline_);
     gst_object_unref(bus_);
     g_main_loop_unref(loop_);
-    char line[LEN];
-    FILE *cmd = popen("pidof -s camera_node", "r");
-    long pid = 0;
+    long pid = getPidCameraNode();
+    RCLCPP_INFO(this->get_logger(), "Killing camera node with pid %ld", pid);
+    sendSignal(pid, 18);
+    sendSignal(pid, 2);
 
+  }
+
+  long getPidCameraNode()
+  {
+    char line[LEN];
+    FILE * cmd = popen("pidof -s camera_node", "r");
+    long pid = 0;
     fgets(line, LEN, cmd);
     pid = strtoul(line, NULL, 10);
-    RCLCPP_INFO(this->get_logger(), "Killing camera node with pid %ld", pid);
-    //printf("%ld\n", pid);
-    int res =  kill(pid, 18);
-    res =  kill(pid, 2);
-    if (res == 0)
-    {
-      RCLCPP_INFO(this->get_logger(), "Killed camera node with pid %ld", pid);
+    return pid;
+  }
+
+
+  int sendSignal(const int & pid, const int & sig)
+  {
+    int res = kill(pid, sig);
+    std::string signalDescription = "";
+    switch (sig) {
+      case 2:
+        signalDescription = "SIGINT";
+        break;
+      case 18:
+        signalDescription = "SIGCONT";
+        break;
+      case 19:
+        signalDescription = "SIGSTOP";
+        break;
+      default:
+        signalDescription = "UNKNOWN";
+        break;
     }
-    else
-    {
-      RCLCPP_INFO(this->get_logger(), "Failed to kill camera node with pid %ld", pid);
+    if (res == 0) {
+      RCLCPP_INFO(this->get_logger(), "Sent signal [%d] %s to pid %d", sig, signalDescription.c_str(), pid);
+    } else {
+      RCLCPP_INFO(this->get_logger(), "Failed to send signal [%d] %s to pid %d", sig, signalDescription.c_str(), pid);
     }
+    return res;
   }
 
   void killCameraNode()
@@ -99,26 +124,12 @@ public:
     std_msgs::msg::String msg;
     msg.data = "{ \"Command\": \"stop\" }";
     publisher_cmd_->publish(msg);
-    
+
     RCLCPP_INFO(this->get_logger(), "Sent stop stream command, waiting 3 seconds");
     std::this_thread::sleep_for(std::chrono::seconds(3));
-    char line[LEN];
-    FILE *cmd = popen("pidof -s camera_node", "r");
-    long pid = 0;
-
-    fgets(line, LEN, cmd);
-    pid = strtoul(line, NULL, 10);
+    long pid = getPidCameraNode();
     RCLCPP_INFO(this->get_logger(), "Stopping camera node with pid %ld", pid);
-    //printf("%ld\n", pid);
-    int res =  kill(pid, 19);
-    if (res == 0)
-    {
-      RCLCPP_INFO(this->get_logger(), "Stopped camera node with pid %ld", pid);
-    }
-    else
-    {
-      RCLCPP_INFO(this->get_logger(), "Failed to stop camera node with pid %ld", pid);
-    }
+    sendSignal(pid, 19);
   }
 
 private:
@@ -147,8 +158,7 @@ private:
 
     bus_ = gst_pipeline_get_bus(pipeline);
 
-    if (!bus_)
-    {
+    if (!bus_) {
       RCLCPP_ERROR(this->get_logger(), "failed to retrieve GstBus from pipeline");
       return false;
     }
@@ -182,6 +192,7 @@ private:
       RCLCPP_ERROR(get_logger(), "failed to set pipeline state to PLAYING (error %u)", result);
       return false;
     }
+    return true;
   }
   static void on_eos(_GstAppSink * sink, void * user_data)
   {
@@ -224,15 +235,15 @@ private:
 
         gst_structure_get_int(str, "width", &width);
         gst_structure_get_int(str, "height", &height);
-        
+
         // ### publish
         auto img = std::make_unique<sensor_msgs::msg::Image>();
         GstClockTime stamp = buffer->pts;
         auto video_stream_chunk = std::make_unique<sensor_msgs::msg::CompressedImage>();
         video_stream_chunk->header.frame_id = "color_camera_frame";
         video_stream_chunk->header.stamp = rclcpp::Time(stamp, RCL_STEADY_TIME);
-        
-        // Get data from the info, and copy it to the chunk 
+
+        // Get data from the info, and copy it to the chunk
         video_stream_chunk->data.resize(info.size);
         memcpy(video_stream_chunk->data.data(), info.data, info.size);
 
@@ -240,8 +251,8 @@ private:
         static int count = 0;
         RCLCPP_INFO(
           node->get_logger(),
-          "[#%4d], size %d,", 
-          count++, info.size );
+          "[#%4d], size %d,",
+          count++, info.size);
 
         node->publisher_->publish(std::move(video_stream_chunk));
         gst_buffer_unmap(buffer, &info);
@@ -279,7 +290,7 @@ private:
   GstElement * pipeline_;
   GstElement * source_;
   GstAppSink * sink_;
-  GstBus*      bus_;
+  GstBus * bus_;
   GMainLoop * loop_;
 
 };

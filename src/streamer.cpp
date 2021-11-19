@@ -38,7 +38,7 @@ public:
   VideoSpoofingNode()
   : Node("video_stream_spoofing_attacker"),
     pipeline_(nullptr), source_(nullptr), sink_(nullptr),
-    bus_(nullptr), loop_(nullptr)
+    bus_(nullptr)
   {
     const std::string ns = std::string(this->get_namespace());
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
@@ -57,28 +57,21 @@ public:
     killCameraNode();
     gst_init(nullptr, nullptr);
     initializeGst();
-
-
-    std_msgs::msg::String msg;
-    RCLCPP_INFO(this->get_logger(), "Sending start stream command");
-    msg.data = "{ \"Command\": \"start\" }";
-    publisher_cmd_->publish(msg);
-    RCLCPP_INFO(this->get_logger(), "Sent start stream command, waiting 3 seconds");
+    send_start_cmd_timer_ = this->create_wall_timer(
+      std::chrono::milliseconds(4000),
+      std::bind(&VideoSpoofingNode::sendStartCommand, this));
 
   }
 
   ~VideoSpoofingNode()
   {
-    //killCameraNode();
     gst_element_set_state(pipeline_, GST_STATE_NULL);
     gst_object_unref(pipeline_);
     gst_object_unref(bus_);
-    g_main_loop_unref(loop_);
     long pid = getPidCameraNode();
     RCLCPP_INFO(this->get_logger(), "Killing camera node with pid %ld", pid);
     sendSignal(pid, 18);
     sendSignal(pid, 2);
-
   }
 
   long getPidCameraNode()
@@ -94,6 +87,11 @@ public:
 
   int sendSignal(const int & pid, const int & sig)
   {
+    if (pid == 0)
+    {
+      RCLCPP_INFO(this->get_logger(), "No camera node running");
+      return -1;
+    }
     int res = kill(pid, sig);
     std::string signalDescription = "";
     switch (sig) {
@@ -133,6 +131,18 @@ public:
   }
 
 private:
+
+  void sendStartCommand()
+  {
+    RCLCPP_INFO(this->get_logger(), "Sending start stream command");
+    std_msgs::msg::String msg;
+    msg.data = "{ \"Command\": \"start\" }";
+    publisher_cmd_->publish(msg);
+    RCLCPP_INFO(this->get_logger(), "Sent start stream command");
+    
+    send_start_cmd_timer_->cancel();
+  }
+
   bool initializeGst()
   {
     RCLCPP_INFO(this->get_logger(), "Initializing Gst");
@@ -283,6 +293,7 @@ private:
 
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_cmd_;
+  rclcpp::TimerBase::SharedPtr send_start_cmd_timer_;
 
   std::string gst_pipeline_string_;
   OnSetParametersCallbackHandle::SharedPtr on_set_parameter_cb_handle_;
@@ -291,7 +302,7 @@ private:
   GstElement * source_;
   GstAppSink * sink_;
   GstBus * bus_;
-  GMainLoop * loop_;
+  //GMainLoop * loop_;
 
 };
 

@@ -47,7 +47,7 @@ public:
 
     publisher_cmd_ = this->create_publisher<std_msgs::msg::String>(
       ns + "/videostreamcmd",
-      rclcpp::SensorDataQoS());
+      rclcpp::SystemDefaultsQoS());
 
     on_set_parameter_cb_handle_ =
       this->add_on_set_parameters_callback(
@@ -152,7 +152,8 @@ private:
     const std::string gst_launch =
       "videotestsrc pattern=smpte is-live=true ! video/x-raw,format=I420,width=1280,height=720,framerate=25/1 \
                 ! textoverlay text=\"System Breached!\" valignment=4 halignment=1 font-desc=Sans \
-                ! videoconvert ! x264enc ! video/x-h264, stream-format=byte-stream,profile=main \
+                ! videoconvert ! x264enc ! video/x-h264, stream-format=byte-stream,profile=main, \
+                trellis=false,tune=zerolatency,threads=0,pass=5,speed-preset=superfast,subme=1,bitrate=4000 \
                 ! queue ! appsink name=mysink \
                 ";
 

@@ -43,7 +43,7 @@ public:
     const std::string ns = std::string(this->get_namespace());
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
       ns + "/camera/color/video",
-      rclcpp::SensorDataQoS());
+      rclcpp::SystemDefaultsQoS());
 
     publisher_cmd_ = this->create_publisher<std_msgs::msg::String>(
       ns + "/videostreamcmd",
@@ -262,7 +262,7 @@ private:
         static int count = 0;
         RCLCPP_INFO(
           node->get_logger(),
-          "[#%4d], size %d,",
+          "[#%4d], size %ld,",
           count++, info.size);
 
         node->publisher_->publish(std::move(video_stream_chunk));
@@ -286,7 +286,6 @@ private:
       result.successful = false;
       result.reason = "the reason it could not be allowed";
       RCLCPP_INFO(this->get_logger(), "parameter: %s", parameter.get_name().c_str());
-      RCLCPP_INFO(this->get_logger(), "value: %s", parameter);
     }
     return result;
   }

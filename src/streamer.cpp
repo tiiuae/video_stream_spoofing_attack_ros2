@@ -45,8 +45,12 @@ public:
       ns + "/camera/color/video",
       rclcpp::SystemDefaultsQoS());
 
-    publisher_cmd_ = this->create_publisher<std_msgs::msg::String>(
-      ns + "/videostreamcmd",
+    camera_cmd_publisher_ = this->create_publisher<std_msgs::msg::String>(
+      ns + "/camera/videostreamcmd",
+      rclcpp::SystemDefaultsQoS());
+
+    gstreamer_cmd_publisher_ = this->create_publisher<std_msgs::msg::String>(
+      ns + "/gstreamer/videostreamcmd",
       rclcpp::SystemDefaultsQoS());
 
     on_set_parameter_cb_handle_ =
@@ -58,7 +62,7 @@ public:
     gst_init(nullptr, nullptr);
     initializeGst();
     send_start_cmd_timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(4000),
+      std::chrono::milliseconds(2000),
       std::bind(&VideoSpoofingNode::sendStartCommand, this));
 
   }
@@ -70,7 +74,7 @@ public:
     gst_object_unref(bus_);
     long pid = getPidCameraNode();
     RCLCPP_INFO(this->get_logger(), "Killing camera node with pid %ld", pid);
-    sendSignal(pid, 18);
+    // sendSignal(pid, 18);
     sendSignal(pid, 2);
   }
 
@@ -118,16 +122,17 @@ public:
 
   void killCameraNode()
   {
-    RCLCPP_INFO(this->get_logger(), "Sending stop stream command");
+    RCLCPP_INFO(this->get_logger(), "Sending stop stream command to gstreamer and camera nodes.");
     std_msgs::msg::String msg;
     msg.data = "{ \"Command\": \"stop\" }";
-    publisher_cmd_->publish(msg);
+    camera_cmd_publisher_->publish(msg);
+    gstreamer_cmd_publisher_->publish(msg);
 
     RCLCPP_INFO(this->get_logger(), "Sent stop stream command, waiting 3 seconds");
     std::this_thread::sleep_for(std::chrono::seconds(3));
-    long pid = getPidCameraNode();
-    RCLCPP_INFO(this->get_logger(), "Stopping camera node with pid %ld", pid);
-    sendSignal(pid, 19);
+    // long pid = getPidCameraNode();
+    // RCLCPP_INFO(this->get_logger(), "Stopping camera node with pid %ld", pid);
+    // sendSignal(pid, 19);
   }
 
 private:
@@ -137,7 +142,7 @@ private:
     RCLCPP_INFO(this->get_logger(), "Sending start stream command");
     std_msgs::msg::String msg;
     msg.data = "{ \"Command\": \"start\" }";
-    publisher_cmd_->publish(msg);
+    gstreamer_cmd_publisher_->publish(msg);
     RCLCPP_INFO(this->get_logger(), "Sent start stream command");
     
     send_start_cmd_timer_->cancel();
@@ -225,7 +230,7 @@ private:
     VideoSpoofingNode * node = (VideoSpoofingNode *)user_data;
     GstSample * sample;
 
-    //RCLCPP_INFO(node->get_logger(), "on_buffer called");
+    // RCLCPP_INFO(node->get_logger(), "on_buffer called");
 
     // Retrieve the buffer
     g_signal_emit_by_name(sink, "pull-sample", &sample);
@@ -249,7 +254,9 @@ private:
 
         // ### publish
         auto img = std::make_unique<sensor_msgs::msg::Image>();
-        GstClockTime stamp = buffer->pts;
+        // The queue prevents sequential reading. So, the pts misbehaves as the timestamp is not monotonic.
+        // So, dts is used for the stamp.
+        GstClockTime stamp = buffer->dts;
         auto video_stream_chunk = std::make_unique<sensor_msgs::msg::CompressedImage>();
         video_stream_chunk->header.frame_id = "color_camera_frame";
         video_stream_chunk->header.stamp = rclcpp::Time(stamp, RCL_STEADY_TIME);
@@ -262,8 +269,8 @@ private:
         static int count = 0;
         RCLCPP_INFO(
           node->get_logger(),
-          "[#%4d], size %ld,",
-          count++, info.size);
+          "[#%4d], Frame stamp %d.%.9d, size %ld,",
+          count++, video_stream_chunk->header.stamp.sec, video_stream_chunk->header.stamp.nanosec, info.size);
 
         node->publisher_->publish(std::move(video_stream_chunk));
         gst_buffer_unmap(buffer, &info);
@@ -292,7 +299,8 @@ private:
   //uint8_t data_;
 
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr publisher_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_cmd_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr gstreamer_cmd_publisher_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr camera_cmd_publisher_;
   rclcpp::TimerBase::SharedPtr send_start_cmd_timer_;
 
   std::string gst_pipeline_string_;

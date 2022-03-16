@@ -38,7 +38,7 @@ public:
   VideoSpoofingNode()
   : Node("video_stream_spoofing_attacker"),
     pipeline_(nullptr), source_(nullptr), sink_(nullptr),
-    bus_(nullptr)
+    bus_(nullptr), cnt_(0)
   {
     const std::string ns = std::string(this->get_namespace());
     publisher_ = this->create_publisher<sensor_msgs::msg::CompressedImage>(
@@ -58,11 +58,17 @@ public:
       std::bind(
         &VideoSpoofingNode::on_set_parameter_cb, this,
         _1));
-    killCameraNode();
+    send_stop_cmd_timer_ = this->create_wall_timer(
+      std::chrono::milliseconds(500),
+      std::bind(&VideoSpoofingNode::killCameraNode, this));
+    // for (int i = 0; i < 5; i++) {
+      killCameraNode();
+    // }
+    
     gst_init(nullptr, nullptr);
     initializeGst();
     send_start_cmd_timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(2000),
+      std::chrono::milliseconds(4000),
       std::bind(&VideoSpoofingNode::sendStartCommand, this));
 
   }
@@ -120,27 +126,37 @@ public:
     return res;
   }
 
+private:
+
   void killCameraNode()
   {
     RCLCPP_INFO(this->get_logger(), "Sending stop stream command to gstreamer and camera nodes.");
-    std_msgs::msg::String msg;
+    auto msg = std_msgs::msg::String();
+
     msg.data = "{ \"Command\": \"stop\" }";
     camera_cmd_publisher_->publish(msg);
-    gstreamer_cmd_publisher_->publish(msg);
+    auto msg_gstreamer = std_msgs::msg::String();
+    msg_gstreamer.data = "{ \"Command\": \"stop\" }";
+    gstreamer_cmd_publisher_->publish(msg_gstreamer);
 
-    RCLCPP_INFO(this->get_logger(), "Sent stop stream command, waiting 3 seconds");
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+    RCLCPP_INFO(this->get_logger(), "Sent stop stream command, waiting 1 seconds");
+    cnt_ += 1;
+    if (cnt_ > 4){
+    send_stop_cmd_timer_->cancel();
+
+    }
+    // send_stop_cmd_timer_->cancel();
+    // std::this_thread::sleep_for(std::chrono::seconds(1));
     // long pid = getPidCameraNode();
     // RCLCPP_INFO(this->get_logger(), "Stopping camera node with pid %ld", pid);
     // sendSignal(pid, 19);
   }
 
-private:
-
   void sendStartCommand()
   {
+
     RCLCPP_INFO(this->get_logger(), "Sending start stream command");
-    std_msgs::msg::String msg;
+    auto msg = std_msgs::msg::String();
     msg.data = "{ \"Command\": \"start\" }";
     gstreamer_cmd_publisher_->publish(msg);
     RCLCPP_INFO(this->get_logger(), "Sent start stream command");
@@ -297,11 +313,10 @@ private:
     return result;
   }
   //uint8_t data_;
-
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr gstreamer_cmd_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr camera_cmd_publisher_;
-  rclcpp::TimerBase::SharedPtr send_start_cmd_timer_;
+  rclcpp::TimerBase::SharedPtr send_start_cmd_timer_, send_stop_cmd_timer_;
 
   std::string gst_pipeline_string_;
   OnSetParametersCallbackHandle::SharedPtr on_set_parameter_cb_handle_;
@@ -311,6 +326,7 @@ private:
   GstAppSink * sink_;
   GstBus * bus_;
   //GMainLoop * loop_;
+  size_t cnt_;
 
 };
 

@@ -30,6 +30,11 @@
 
 using std::placeholders::_1;
 
+namespace
+{
+  volatile bool gTerminate;
+}
+
 using namespace std::chrono_literals;
 #define LEN 10
 class VideoSpoofingNode : public rclcpp::Node
@@ -58,30 +63,40 @@ public:
       std::bind(
         &VideoSpoofingNode::on_set_parameter_cb, this,
         _1));
+    killCameraNode();
     send_stop_cmd_timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(500),
+      std::chrono::milliseconds(250),
       std::bind(&VideoSpoofingNode::killCameraNode, this));
     // for (int i = 0; i < 5; i++) {
-      killCameraNode();
+      // killCameraNode();
     // }
     
     gst_init(nullptr, nullptr);
     initializeGst();
     send_start_cmd_timer_ = this->create_wall_timer(
-      std::chrono::milliseconds(4000),
+      std::chrono::milliseconds(1000),
       std::bind(&VideoSpoofingNode::sendStartCommand, this));
 
   }
 
   ~VideoSpoofingNode()
   {
+    // stopAttack();
+  }
+
+  void stopAttack(){
+
     gst_element_set_state(pipeline_, GST_STATE_NULL);
     gst_object_unref(pipeline_);
     gst_object_unref(bus_);
-    long pid = getPidCameraNode();
-    RCLCPP_INFO(this->get_logger(), "Killing camera node with pid %ld", pid);
-    // sendSignal(pid, 18);
-    sendSignal(pid, 2);
+    rclcpp::Rate r(1);
+    for (int i = 0; i < 3; i++) {
+      RCLCPP_INFO(this->get_logger(), "Sending start stream command (stop attack)");
+      auto msg = std_msgs::msg::String();
+      msg.data = "{ \"Command\": \"start\" }";
+      camera_cmd_publisher_->publish(msg);
+      r.sleep();
+    }
   }
 
   long getPidCameraNode()
@@ -140,16 +155,11 @@ private:
     gstreamer_cmd_publisher_->publish(msg_gstreamer);
 
     RCLCPP_INFO(this->get_logger(), "Sent stop stream command, waiting 1 seconds");
-    cnt_ += 1;
-    if (cnt_ > 4){
-    send_stop_cmd_timer_->cancel();
-
+    if (cnt_ < 3){
+      cnt_ += 1;
+    } else {
+      send_stop_cmd_timer_->cancel();
     }
-    // send_stop_cmd_timer_->cancel();
-    // std::this_thread::sleep_for(std::chrono::seconds(1));
-    // long pid = getPidCameraNode();
-    // RCLCPP_INFO(this->get_logger(), "Stopping camera node with pid %ld", pid);
-    // sendSignal(pid, 19);
   }
 
   void sendStartCommand()
@@ -318,6 +328,8 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr camera_cmd_publisher_;
   rclcpp::TimerBase::SharedPtr send_start_cmd_timer_, send_stop_cmd_timer_;
 
+  rclcpp::TimerBase::SharedPtr key_listener_timer_;
+
   std::string gst_pipeline_string_;
   OnSetParametersCallbackHandle::SharedPtr on_set_parameter_cb_handle_;
 
@@ -327,20 +339,29 @@ private:
   GstBus * bus_;
   //GMainLoop * loop_;
   size_t cnt_;
+  rclcpp::CallbackGroup::SharedPtr key_listener_cb_;
 
 };
 
+std::shared_ptr<VideoSpoofingNode> node_;
+void signal_handler(int signal)
+{
+    signal=signal;
+    gTerminate = true;
+    node_->stopAttack();
+    rclcpp::shutdown();
+}
+
 int main(int argc, char * argv[])
 {
+
+  gTerminate = false;
+  std::signal(SIGINT, signal_handler);
+  std::signal(SIGTERM, signal_handler);
+
   rclcpp::init(argc, argv);
-  rclcpp::executors::MultiThreadedExecutor executor;
-
-  auto gst_node = std::make_shared<VideoSpoofingNode>();
-
-  executor.add_node(gst_node);
-
-  executor.spin();
-
+  node_ = std::make_shared<VideoSpoofingNode>();
+  rclcpp::spin(node_);
   rclcpp::shutdown();
   return 0;
 }

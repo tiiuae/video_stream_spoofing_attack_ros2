@@ -52,17 +52,14 @@ public:
 
     camera_cmd_publisher_ = this->create_publisher<std_msgs::msg::String>(
       ns + "/camera/videostreamcmd",
-      rclcpp::SystemDefaultsQoS());
+      rclcpp::QoS(10).reliable());
 
     gstreamer_cmd_publisher_ = this->create_publisher<std_msgs::msg::String>(
       ns + "/gstreamer/videostreamcmd",
       rclcpp::SystemDefaultsQoS());
-
-    on_set_parameter_cb_handle_ =
-      this->add_on_set_parameters_callback(
-      std::bind(
-        &VideoSpoofingNode::on_set_parameter_cb, this,
-        _1));
+    eos_ = false;
+    this->declare_parameter("video_file", rclcpp::ParameterValue(""));
+    video_file_ = this->get_parameter("video_file").as_string();
     killCameraNode();
     send_stop_cmd_timer_ = this->create_wall_timer(
       std::chrono::milliseconds(200),
@@ -85,8 +82,9 @@ public:
   }
 
   void stopAttack(){
-
-    gst_element_set_state(pipeline_, GST_STATE_NULL);
+    if (!eos_){
+      gst_element_set_state(pipeline_, GST_STATE_NULL);
+    }
     gst_object_unref(pipeline_);
     gst_object_unref(bus_);
     RCLCPP_INFO(this->get_logger(), "Sending start command to camera (stop attack).");
@@ -146,14 +144,14 @@ private:
 
   void killCameraNode()
   {
-    RCLCPP_INFO(this->get_logger(), "Sending stop stream command to gstreamer and camera nodes.");
+    RCLCPP_INFO(this->get_logger(), "Sending stop stream command to camera nodes.");
     auto msg = std_msgs::msg::String();
 
     msg.data = "{ \"Command\": \"stop\" }";
     camera_cmd_publisher_->publish(msg);
-    auto msg_gstreamer = std_msgs::msg::String();
-    msg_gstreamer.data = "{ \"Command\": \"stop\" }";
-    gstreamer_cmd_publisher_->publish(msg_gstreamer);
+    // auto msg_gstreamer = std_msgs::msg::String();
+    // msg_gstreamer.data = "{ \"Command\": \"stop\" }";
+    // gstreamer_cmd_publisher_->publish(msg_gstreamer);
 
     RCLCPP_INFO(this->get_logger(), "Sent stop stream command, waiting 0.2 seconds");
     if (cnt_ < 10){
@@ -172,6 +170,15 @@ private:
     gstreamer_cmd_publisher_->publish(msg);
     RCLCPP_INFO(this->get_logger(), "Sent start stream command");
     
+
+    const GstStateChangeReturn result = gst_element_set_state(pipeline_, GST_STATE_PLAYING);
+
+    if (result == GST_STATE_CHANGE_ASYNC) {
+      // here will be a debug point in the future
+      RCLCPP_INFO(get_logger(), "success to set pipeline state to PLAYING");
+    } else if (result != GST_STATE_CHANGE_SUCCESS) {
+      RCLCPP_ERROR(get_logger(), "failed to set pipeline state to PLAYING (error %u)", result);
+    }
     send_start_cmd_timer_->cancel();
   }
 
@@ -180,14 +187,25 @@ private:
     RCLCPP_INFO(this->get_logger(), "Initializing Gst");
     GError * err = NULL;
 
+   std::string gst_launch;
+    if (video_file_.empty()){
 
-    const std::string gst_launch =
-      "videotestsrc pattern=smpte is-live=true ! video/x-raw,format=I420,width=1280,height=720,framerate=25/1 \
-                ! textoverlay text=\"System Breached!\" valignment=4 halignment=1 font-desc=Sans \
-                ! videoconvert ! x264enc ! video/x-h264, stream-format=byte-stream,profile=main, \
-                trellis=false,tune=zerolatency,threads=0,pass=5,speed-preset=superfast,subme=1,bitrate=4000 \
-                ! queue ! appsink name=mysink \
-                ";
+      gst_launch = "videotestsrc pattern=ball is-live=true ! video/x-raw,format=I420,width=1280,height=720,framerate=25/1 \
+                  ! identity name=post-src ! textoverlay text=\"System Breached!\" valignment=4 halignment=1 font-desc=Sans \
+                  ! identity name=pre-x264enc ! queue ! x264enc tune=fastdecode bitrate=5000 speed-preset=superfast rc-lookahead=5 \
+                  ! video/x-h264, stream-format=byte-stream, profile=baseline \
+                  ! identity name=pre-appsink ! appsink name=mysink emit-signals=true  \
+                  ";
+    } else {
+      gst_launch = "filesrc location=" + video_file_ + " \
+                  ! decodebin name=dec ! videoconvert \
+                  ! identity name=post-src ! textoverlay text=\"System Breached!\" valignment=4 halignment=1 font-desc=Sans \
+                  ! identity name=pre-x264enc ! queue ! x264enc tune=fastdecode bitrate=5000 speed-preset=superfast rc-lookahead=5 \
+                  ! video/x-h264, stream-format=byte-stream, profile=baseline \
+                  ! identity name=pre-appsink ! appsink name=mysink emit-signals=true  \
+                  ";
+    }
+    
 
     pipeline_ = gst_parse_launch(gst_launch.c_str(), &err);
 
@@ -226,15 +244,6 @@ private:
 
     gst_app_sink_set_callbacks(sink_, &cb, (void *)this, NULL);
 
-    const GstStateChangeReturn result = gst_element_set_state(pipeline_, GST_STATE_PLAYING);
-
-    if (result == GST_STATE_CHANGE_ASYNC) {
-      // here will be a debug point in the future
-      RCLCPP_INFO(get_logger(), "success to set pipeline state to PLAYING");
-    } else if (result != GST_STATE_CHANGE_SUCCESS) {
-      RCLCPP_ERROR(get_logger(), "failed to set pipeline state to PLAYING (error %u)", result);
-      return false;
-    }
     return true;
   }
   static void on_eos(_GstAppSink * sink, void * user_data)
@@ -242,6 +251,8 @@ private:
     VideoSpoofingNode * node = (VideoSpoofingNode *)user_data;
     (void)sink;
     RCLCPP_INFO(node->get_logger(), "on_eos called");
+    node->eos_ = true;
+    raise(SIGINT);
   }
 
   static GstFlowReturn on_preroll(_GstAppSink * sink, void * user_data)
@@ -249,6 +260,9 @@ private:
     VideoSpoofingNode * node = (VideoSpoofingNode *)user_data;
     (void)sink;
     RCLCPP_INFO(node->get_logger(), "on_preroll called");
+
+    GstSample * sample;
+    g_signal_emit_by_name (sink, "pull-preroll", &sample, NULL);
     return GST_FLOW_OK;
   }
 
@@ -269,6 +283,7 @@ private:
       gst_buffer_map(buffer, &info, GST_MAP_READ);
 
       if (info.data != NULL) {
+        GstSegment *seg = gst_sample_get_segment (sample);
         int width, height;
         GstStructure * str;
 
@@ -279,21 +294,25 @@ private:
         gst_structure_get_int(str, "width", &width);
         gst_structure_get_int(str, "height", &height);
 
+        static int count = 0;
         // ### publish
         auto img = std::make_unique<sensor_msgs::msg::Image>();
         // The queue prevents sequential reading. So, the pts misbehaves as the timestamp is not monotonic.
         // So, dts is used for the stamp.
-        GstClockTime stamp = buffer->dts;
+        
+        // GstClockTime stamp = buffer->pts;
+        GstClockTime pos = buffer->dts;
+        // GstClockTime stamp = GST_BUFFER_TIMESTAMP(buffer);
+        // pos = gst_segment_to_stream_time(seg, GST_FORMAT_TIME, pos);
         auto video_stream_chunk = std::make_unique<sensor_msgs::msg::CompressedImage>();
         video_stream_chunk->header.frame_id = "color_camera_frame";
-        video_stream_chunk->header.stamp = rclcpp::Time(stamp, RCL_STEADY_TIME);
+        video_stream_chunk->header.stamp = rclcpp::Time(pos, RCL_STEADY_TIME);
 
         // Get data from the info, and copy it to the chunk
         video_stream_chunk->data.resize(info.size);
         memcpy(video_stream_chunk->data.data(), info.data, info.size);
 
 
-        static int count = 0;
         RCLCPP_INFO(
           node->get_logger(),
           "[#%4d], Frame stamp %d.%.9d, size %ld,",
@@ -310,19 +329,6 @@ private:
     return GST_FLOW_ERROR;
   }
 
-  rcl_interfaces::msg::SetParametersResult
-  on_set_parameter_cb(const std::vector<rclcpp::Parameter> & parameters)
-  {
-
-    rcl_interfaces::msg::SetParametersResult result;
-    result.successful = true;
-    for (const rclcpp::Parameter & parameter : parameters) {
-      result.successful = false;
-      result.reason = "the reason it could not be allowed";
-      RCLCPP_INFO(this->get_logger(), "parameter: %s", parameter.get_name().c_str());
-    }
-    return result;
-  }
   //uint8_t data_;
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr gstreamer_cmd_publisher_;
@@ -330,14 +336,14 @@ private:
   rclcpp::TimerBase::SharedPtr send_start_cmd_timer_, send_stop_cmd_timer_;
 
   rclcpp::TimerBase::SharedPtr key_listener_timer_;
+  std::string video_file_;
 
   std::string gst_pipeline_string_;
-  OnSetParametersCallbackHandle::SharedPtr on_set_parameter_cb_handle_;
-
   GstElement * pipeline_;
   GstElement * source_;
   GstAppSink * sink_;
   GstBus * bus_;
+  bool eos_;
   //GMainLoop * loop_;
   size_t cnt_;
   rclcpp::CallbackGroup::SharedPtr key_listener_cb_;

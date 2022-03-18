@@ -283,7 +283,7 @@ private:
       gst_buffer_map(buffer, &info, GST_MAP_READ);
 
       if (info.data != NULL) {
-        GstSegment *seg = gst_sample_get_segment (sample);
+        // GstSegment *seg = gst_sample_get_segment (sample);
         int width, height;
         GstStructure * str;
 
@@ -299,7 +299,7 @@ private:
         auto img = std::make_unique<sensor_msgs::msg::Image>();
         // The queue prevents sequential reading. So, the pts misbehaves as the timestamp is not monotonic.
         // So, dts is used for the stamp.
-        
+
         // GstClockTime stamp = buffer->pts;
         GstClockTime pos = buffer->dts;
         // GstClockTime stamp = GST_BUFFER_TIMESTAMP(buffer);

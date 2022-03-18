@@ -190,7 +190,7 @@ private:
    std::string gst_launch;
     if (video_file_.empty()){
 
-      gst_launch = "videotestsrc pattern=ball is-live=true ! video/x-raw,format=I420,width=1280,height=720,framerate=25/1 \
+      gst_launch = "videotestsrc pattern=smpte is-live=true ! video/x-raw,format=I420,width=1280,height=720,framerate=25/1 \
                   ! identity name=post-src ! textoverlay text=\"System Breached!\" valignment=4 halignment=1 font-desc=Sans \
                   ! identity name=pre-x264enc ! queue ! x264enc tune=fastdecode bitrate=5000 speed-preset=superfast rc-lookahead=5 \
                   ! video/x-h264, stream-format=byte-stream, profile=baseline \
